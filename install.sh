@@ -162,9 +162,12 @@ sync_database_password(){
   docker compose up -d db >/dev/null
 
   local db_id=""
+  local db_user="${POSTGRES_USER:-taskautomation}"
+  local db_name="${POSTGRES_DB:-taskautomation}"
+
   for _ in $(seq 1 30); do
     db_id="$(docker compose ps -q db 2>/dev/null || true)"
-    if [[ -n "$db_id" ]] && docker exec "$db_id" pg_isready -U taskautomation -d taskautomation >/dev/null 2>&1; then
+    if [[ -n "$db_id" ]] && docker exec "$db_id" pg_isready -U "$db_user" -d "$db_name" >/dev/null 2>&1; then
       break
     fi
     sleep 1
@@ -172,10 +175,16 @@ sync_database_password(){
 
   [[ -n "$db_id" ]] || die "PostgreSQL container could not be started."
 
-  if docker exec -u postgres "$db_id" psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='taskautomation'" 2>/dev/null | grep -q 1; then
-    docker exec -u postgres "$db_id" psql -d postgres -v ON_ERROR_STOP=1 \
-      -c "ALTER ROLE taskautomation WITH PASSWORD '$POSTGRES_PASSWORD';" >/dev/null
+  # The official Postgres image creates POSTGRES_USER as the database superuser.
+  # Local Unix-socket connections inside the container are trusted, so this can
+  # repair a password mismatch even when the TCP password stored in .env changed.
+  if docker exec "$db_id" psql -U "$db_user" -d "$db_name" -tAc \
+      "SELECT 1 FROM pg_roles WHERE rolname='$db_user'" 2>/dev/null | grep -q 1; then
+    docker exec "$db_id" psql -U "$db_user" -d "$db_name" -v ON_ERROR_STOP=1 \
+      -c "ALTER ROLE \"$db_user\" WITH PASSWORD '$POSTGRES_PASSWORD';" >/dev/null
     ok "PostgreSQL credentials synchronized with .env."
+  else
+    die "Could not find PostgreSQL role '$db_user' in the existing database."
   fi
 }
 
