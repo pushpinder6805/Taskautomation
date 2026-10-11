@@ -1,0 +1,1 @@
+Taskautomation-Task automation is the use of software and technology to complete routine, repetitive, and rule-based tasks without human intervention. It follows a basic "when and do" logic: when a specific trigger event happens, the system automatically performs a designated action.
