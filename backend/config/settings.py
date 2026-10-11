@@ -81,7 +81,11 @@ USE_TZ = True
 STATIC_URL = "/static/"
 STATIC_ROOT = BASE_DIR / "staticfiles"
 FRONTEND_DIST = BASE_DIR / "frontend_dist"
-STATICFILES_DIRS = [FRONTEND_DIST / "assets"] if (FRONTEND_DIST / "assets").exists() else []
+STATICFILES_DIRS = (
+    [("assets", FRONTEND_DIST / "assets")]
+    if (FRONTEND_DIST / "assets").exists()
+    else []
+)
 
 STORAGES = {
     "staticfiles": {
