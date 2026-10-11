@@ -5,10 +5,20 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-only-change-me")
 DEBUG = os.getenv("DEBUG", "false").lower() == "true"
+DOMAIN = os.getenv("DOMAIN", "").strip()
+SITE_URL = os.getenv("SITE_URL", "").strip().rstrip("/")
 
 ALLOWED_HOSTS = [x.strip() for x in os.getenv("ALLOWED_HOSTS", "*").split(",") if x.strip()]
 if not ALLOWED_HOSTS:
     ALLOWED_HOSTS = ["*"]
+
+CSRF_TRUSTED_ORIGINS = []
+if SITE_URL and SITE_URL.startswith(("http://", "https://")):
+    CSRF_TRUSTED_ORIGINS.append(SITE_URL)
+
+# Caddy terminates TLS in domain mode and forwards the original scheme.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+USE_X_FORWARDED_HOST = True
 
 INSTALLED_APPS = [
     "django.contrib.admin",
