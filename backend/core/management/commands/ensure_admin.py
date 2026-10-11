@@ -1,10 +1,10 @@
 import os
 from django.contrib.auth import get_user_model
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
-    help = "Create the initial administrator from environment variables."
+    help = "Create or synchronize the administrator from environment variables."
 
     def handle(self, *args, **options):
         email = os.getenv("ADMIN_EMAIL", "").strip()
@@ -12,36 +12,43 @@ class Command(BaseCommand):
         name = os.getenv("ADMIN_NAME", "Administrator").strip()
 
         if not email or not password:
-            self.stdout.write(self.style.WARNING(
-                "ADMIN_EMAIL or ADMIN_PASSWORD missing; skipping admin creation."
-            ))
-            return
+            raise CommandError("ADMIN_EMAIL and ADMIN_PASSWORD are required.")
 
         User = get_user_model()
         username_field = User.USERNAME_FIELD
+
+        # The installer uses the administrator email as the login identifier.
+        # Prefer an existing account with this login. For Django's default User
+        # model, also recover an account that may already have the same email.
         lookup = {username_field: email}
-        user, created = User.objects.get_or_create(
-            **lookup,
-            defaults={"is_staff": True, "is_superuser": True},
-        )
+        user = User.objects.filter(**lookup).first()
 
-        changed = False
-        if not user.is_staff:
-            user.is_staff = True
-            changed = True
-        if not user.is_superuser:
-            user.is_superuser = True
-            changed = True
-        if hasattr(user, "first_name") and name and not user.first_name:
+        if user is None and hasattr(User, "email"):
+            user = User.objects.filter(email__iexact=email).first()
+
+        created = user is None
+        if created:
+            user = User(**lookup)
+        else:
+            setattr(user, username_field, email)
+
+        # Keep installer credentials authoritative. This prevents an old
+        # database volume from retaining a stale admin password after a
+        # reinstall or reconfiguration.
+        if hasattr(user, "email"):
+            user.email = email
+        if hasattr(user, "first_name"):
             user.first_name = name
-            changed = True
 
-        if created or os.getenv("RESET_ADMIN_PASSWORD", "false").lower() == "true":
-            user.set_password(password)
-            changed = True
+        user.is_active = True
+        user.is_staff = True
+        user.is_superuser = True
+        user.set_password(password)
+        user.save()
 
-        if changed:
-            user.save()
-
-        message = "created" if created else "already exists"
-        self.stdout.write(self.style.SUCCESS(f"Admin {email} {message}."))
+        action = "created" if created else "synchronized"
+        self.stdout.write(
+            self.style.SUCCESS(
+                f"Administrator {email} {action}. Login username: {email}"
+            )
+        )
