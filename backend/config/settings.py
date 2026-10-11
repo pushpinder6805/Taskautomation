@@ -16,7 +16,6 @@ CSRF_TRUSTED_ORIGINS = []
 if SITE_URL and SITE_URL.startswith(("http://", "https://")):
     CSRF_TRUSTED_ORIGINS.append(SITE_URL)
 
-# Caddy terminates TLS in domain mode and forwards the original scheme.
 SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
 USE_X_FORWARDED_HOST = True
 
@@ -46,6 +45,21 @@ MIDDLEWARE = [
 
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
+
+TEMPLATES = [
+    {
+        "BACKEND": "django.template.backends.django.DjangoTemplates",
+        "DIRS": [],
+        "APP_DIRS": True,
+        "OPTIONS": {
+            "context_processors": [
+                "django.template.context_processors.request",
+                "django.contrib.auth.context_processors.auth",
+                "django.contrib.messages.context_processors.messages",
+            ],
+        },
+    },
+]
 
 DATABASES = {
     "default": {
