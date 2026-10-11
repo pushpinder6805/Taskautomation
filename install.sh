@@ -23,7 +23,6 @@ cd "$REPO_DIR"
 printf '\n%s installer\n' "$APP_NAME"
 printf '%s\n\n' '----------------------------------------'
 
-# ---------- OS / package helpers ----------
 [[ -r /etc/os-release ]] || die "Cannot detect Linux distribution."
 # shellcheck disable=SC1091
 source /etc/os-release
@@ -90,7 +89,6 @@ ensure_docker(){
 ensure_base_tools
 ensure_docker
 
-# ---------- helpers ----------
 valid_email(){ [[ "$1" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]]; }
 port_busy(){ ss -H -ltn "sport = :$1" 2>/dev/null | grep -q .; }
 port_details(){ ss -ltnp "sport = :$1" 2>/dev/null || true; }
@@ -159,12 +157,36 @@ handle_web_ports(){
   [[ $stopped -eq 1 ]] && ok "Conflicting host web service disabled."
 }
 
-# ---------- interactive configuration ----------
+sync_database_password(){
+  info "Checking existing PostgreSQL data..."
+  docker compose up -d db >/dev/null
+
+  local db_id=""
+  for _ in $(seq 1 30); do
+    db_id="$(docker compose ps -q db 2>/dev/null || true)"
+    if [[ -n "$db_id" ]] && docker exec "$db_id" pg_isready -U taskautomation -d taskautomation >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+
+  [[ -n "$db_id" ]] || die "PostgreSQL container could not be started."
+
+  if docker exec -u postgres "$db_id" psql -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='taskautomation'" 2>/dev/null | grep -q 1; then
+    docker exec -u postgres "$db_id" psql -d postgres -v ON_ERROR_STOP=1 \
+      -c "ALTER ROLE taskautomation WITH PASSWORD '$POSTGRES_PASSWORD';" >/dev/null
+    ok "PostgreSQL credentials synchronized with .env."
+  fi
+}
+
+EXISTING_POSTGRES_PASSWORD=""
 if [[ -f "$ENV_FILE" ]]; then
+  EXISTING_POSTGRES_PASSWORD="$(grep -E '^POSTGRES_PASSWORD=' "$ENV_FILE" | head -n1 | cut -d= -f2- || true)"
   read -r -p "An existing .env configuration was found. Reconfigure it? [y/N]: " reconfigure
   if [[ ! "$reconfigure" =~ ^[Yy]$ ]]; then
     info "Using existing configuration."
     set -a; source "$ENV_FILE"; set +a
+    sync_database_password
     docker compose up -d --build
     ok "Deployment command completed."
     exit 0
@@ -240,7 +262,7 @@ if [[ ! "$smtp_now" =~ ^[Nn]$ ]]; then
 fi
 
 SECRET_KEY="$(openssl rand -hex 48)"
-POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+POSTGRES_PASSWORD="${EXISTING_POSTGRES_PASSWORD:-$(openssl rand -hex 24)}"
 
 cat > "$ENV_FILE" <<EOF
 APP_NAME=$APP_NAME
@@ -272,6 +294,8 @@ DEFAULT_FROM_EMAIL=$DEFAULT_FROM_EMAIL
 EOF
 chmod 600 "$ENV_FILE"
 ok "Configuration written securely to .env"
+
+sync_database_password
 
 info "Building and starting $APP_NAME..."
 docker compose up -d --build
